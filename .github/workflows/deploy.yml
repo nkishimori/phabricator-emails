@@ -8,45 +8,18 @@
 # DOCKER_USER    - login info for docker hub
 # DOCKER_PASS
 
-name: CI
+name: Deploy
 
 on:
   push:
-    # Ignore branches with slashes (e.g. dependabot/...)
-    branches-ignore:
-      - "**/**"
+    branches:
+      - master
     tags:
-      - "**"
-  pull_request:
+      - "release-*"
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.9"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run python tests
-        run: |
-          mkdir test-results
-          pytest --junitxml=test-results/junit.xml
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test-results/
-
   build-and-push:
     runs-on: ubuntu-latest
-    needs: test
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +50,7 @@ jobs:
         run: |
           docker inspect -f '{{.Id}}' mozilla/phabricator-emails \
             | tee docker-image-id.txt
+
       - name: Upload image ID artifact
         uses: actions/upload-artifact@v4
         with:
@@ -90,9 +64,12 @@ jobs:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
           DOCKER_PASS: ${{ secrets.DOCKER_PASS }}
         run: |
-          docker tag "mozilla/phabricator-emails" "${{ secrets.DOCKERHUB_REPO }}"
           docker tag "mozilla/phabricator-emails" "${{ secrets.DOCKERHUB_REPO }}:${{ github.sha }}"
           docker push "${{ secrets.DOCKERHUB_REPO }}:${{ github.sha }}"
-          if [[ "${{ github.ref_name }}" == "master" ]]; then
+          if [[ "${{ github.ref_type }}" == "branch" ]]; then
+            docker tag "mozilla/phabricator-emails" "${{ secrets.DOCKERHUB_REPO }}:latest"
             docker push "${{ secrets.DOCKERHUB_REPO }}:latest"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            docker tag "mozilla/phabricator-emails" "${{ secrets.DOCKERHUB_REPO }}:${{ github.ref_name }}"
+            docker push "${{ secrets.DOCKERHUB_REPO }}:${{ github.ref_name }}"
           fi
